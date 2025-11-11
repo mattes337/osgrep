@@ -43,6 +43,8 @@ function formatChunk(chunk: ChunkType) {
 export const search: Command = new CommanderCommand("search")
   .description("File pattern searcher")
   .argument("<pattern>", "The pattern to search for")
+  .allowUnknownOption(true)
+  .allowExcessArguments(true)
   .action(async (pattern, _options, cmd) => {
     const options: { store: string } = cmd.optsWithGlobals();
 
