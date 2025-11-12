@@ -25,12 +25,12 @@ function formatChunk(chunk: ChunkType) {
   let line_range = "";
   switch (chunk.type) {
     case "text":
-      line_range = `:${chunk.generated_metadata?.start_line}-${(chunk.generated_metadata?.start_line as number) + (chunk.generated_metadata?.num_lines as number)}:${chunk.text}`;
+      line_range = `, lines ${chunk.generated_metadata?.start_line} to ${(chunk.generated_metadata?.start_line as number) + (chunk.generated_metadata?.num_lines as number)}`;
       break;
     case "image_url":
       line_range =
         chunk.generated_metadata?.type === "pdf"
-          ? `:${chunk.chunk_index + 1}`
+          ? `, page ${chunk.chunk_index + 1}`
           : "";
       break;
     case "audio_url":
