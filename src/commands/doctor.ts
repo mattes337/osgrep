@@ -13,6 +13,10 @@ export const doctor = new Command("doctor")
     const models = path.join(root, "models");
     const data = path.join(root, "data");
     const grammars = path.join(root, "grammars");
+    const modelIds = [
+        "mixedbread-ai/mxbai-embed-xsmall-v1",
+        "mixedbread-ai/mxbai-rerank-xsmall-v1",
+    ];
 
     const checkDir = (name: string, p: string) => {
         const exists = fs.existsSync(p);
@@ -25,10 +29,21 @@ export const doctor = new Command("doctor")
     checkDir("Data (Vector DB)", data);
     checkDir("Grammars", grammars);
 
-    if (fs.existsSync(models)) {
-        const files = fs.readdirSync(models);
-        const modelExists = files.some(f => f.includes("mxbai"));
-        console.log(modelExists ? "✅ Model: Cached" : "❌ Model: Not found (will download on first run)");
+    const modelStatuses = modelIds.map((id) => {
+        const modelPath = path.join(models, ...id.split("/"));
+        return { id, path: modelPath, exists: fs.existsSync(modelPath) };
+    });
+
+    modelStatuses.forEach(({ id, path: p, exists }) => {
+        const symbol = exists ? "✅" : "❌";
+        console.log(`${symbol} Model: ${id} (${p})`);
+    });
+
+    const missingModels = modelStatuses.filter(({ exists }) => !exists);
+    if (missingModels.length > 0) {
+        console.log(
+            "❌ Some models are missing and will be downloaded automatically on first run.",
+        );
     }
 
     console.log(`\nSystem: ${os.platform()} ${os.arch()} | Node: ${process.version}`);
