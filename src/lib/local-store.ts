@@ -700,16 +700,20 @@ export class LocalStore implements Store {
 
         if (int8) {
           const docMatrix: number[][] = [];
-          // Use the actual dimension from the model if available, otherwise fallback to config
-          const dim = queryEnc.colbertDim || this.colbertDim;
+          // CRITICAL FIX: Always stride by the dimension used to STORE the data
+          const stride = this.colbertDim;
 
-          for (let i = 0; i < int8.length; i += dim) {
+          for (let i = 0; i < int8.length; i += stride) {
             const row: number[] = [];
             let isPadding = true;
-            for (let k = 0; k < dim; k++) {
-              if (i + k >= int8.length) break; // Safety check
+
+            // Iterate up to the stored width
+            for (let k = 0; k < stride; k++) {
+              if (i + k >= int8.length) break;
+
               const val = (int8[i + k] / 127) * scale;
               if (val !== 0) isPadding = false;
+
               row.push(val);
             }
             if (!isPadding) {

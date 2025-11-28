@@ -616,67 +616,70 @@ export async function initialSync(
 
   // Second pass: chunk + embed + write using global batching (parallel chunking)
   if (!dryRun) {
-    await Promise.all(
-      candidates.map((candidate) =>
-        limit(async () => {
-          if (signal?.aborted) return;
-          try {
-            const buffer = await fs.promises.readFile(candidate.filePath);
-            const { chunks, indexed: didIndex } = await indexFile(
-              store,
-              storeId,
-              candidate.filePath,
-              path.basename(candidate.filePath),
-              metaStore,
-              profile,
-              buffer,
-              candidate.hash,
-              storeIsEmpty,
-            );
-            pendingIndexCount = Math.max(0, pendingIndexCount - 1);
-            if (didIndex) {
-              indexed += 1;
-              if (chunks.length > 0) {
-                embedQueue.push(...chunks);
-                if (embedQueue.length >= EMBED_BATCH_SIZE) {
-                  await queueFlush();
+    const INDEX_BATCH = 200;
+    for (let i = 0; i < candidates.length; i += INDEX_BATCH) {
+      const slice = candidates.slice(i, i + INDEX_BATCH);
+      await Promise.all(
+        slice.map((candidate) =>
+          limit(async () => {
+            if (signal?.aborted) return;
+            try {
+              const buffer = await fs.promises.readFile(candidate.filePath);
+              const { chunks, indexed: didIndex } = await indexFile(
+                store,
+                storeId,
+                candidate.filePath,
+                path.basename(candidate.filePath),
+                metaStore,
+                profile,
+                buffer,
+                candidate.hash,
+                storeIsEmpty,
+              );
+              pendingIndexCount = Math.max(0, pendingIndexCount - 1);
+              if (didIndex) {
+                indexed += 1;
+                if (chunks.length > 0) {
+                  embedQueue.push(...chunks);
+                  if (embedQueue.length >= EMBED_BATCH_SIZE) {
+                    await queueFlush();
+                  }
+                }
+
+                // Periodic meta save
+                if (metaStore && !SKIP_META_SAVE && indexed % 25 === 0) {
+                  const saveStart = PROFILE_ENABLED ? now() : null;
+                  metaStore
+                    .save()
+                    .catch((err) =>
+                      console.error("Failed to auto-save meta:", err),
+                    );
+                  if (PROFILE_ENABLED && saveStart && profile) {
+                    profile.metaSaveCount += 1;
+                    profile.sections.metaSave =
+                      (profile.sections.metaSave ?? 0) + toMs(saveStart);
+                  }
                 }
               }
-
-
-              // Periodic meta save
-              if (metaStore && !SKIP_META_SAVE && indexed % 25 === 0) {
-                const saveStart = PROFILE_ENABLED ? now() : null;
-                metaStore
-                  .save()
-                  .catch((err) =>
-                    console.error("Failed to auto-save meta:", err),
-                  );
-                if (PROFILE_ENABLED && saveStart && profile) {
-                  profile.metaSaveCount += 1;
-                  profile.sections.metaSave =
-                    (profile.sections.metaSave ?? 0) + toMs(saveStart);
-                }
-              }
+              onProgress?.({
+                processed,
+                indexed,
+                total,
+                filePath: candidate.filePath,
+              });
+            } catch (_err) {
+              pendingIndexCount = Math.max(0, pendingIndexCount - 1);
+              onProgress?.({
+                processed,
+                indexed,
+                total,
+                filePath: candidate.filePath,
+              });
             }
-            onProgress?.({
-              processed,
-              indexed,
-              total,
-              filePath: candidate.filePath,
-            });
-          } catch (_err) {
-            pendingIndexCount = Math.max(0, pendingIndexCount - 1);
-            onProgress?.({
-              processed,
-              indexed,
-              total,
-              filePath: candidate.filePath,
-            });
-          }
-        }),
-      ),
-    );
+          }),
+        ),
+      );
+    }
   }
 
   await queueFlush(true);

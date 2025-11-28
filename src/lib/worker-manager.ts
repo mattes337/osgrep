@@ -6,7 +6,8 @@ import { WORKER_TIMEOUT_MS } from "../config";
 
 type WorkerRequest =
   | { id: string; hybrid: { texts: string[] } }
-  | { id: string; query: { text: string } };
+  | { id: string; query: { text: string } }
+  | { type: "shutdown" };
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -19,9 +20,8 @@ export class WorkerManager {
   private pendingRequests = new Map<string, PendingRequest>();
   private isClosing = false;
 
-  constructor() {
-    // Lazy load worker
-  }
+  // Mutex queue: ensures only 1 in-flight request at a time.
+  private queue: Promise<void> = Promise.resolve();
 
   private getWorkerConfig(): { workerPath: string; execArgv: string[] } {
     const tsWorkerPath = path.join(__dirname, "worker.ts");
@@ -45,18 +45,13 @@ export class WorkerManager {
     worker.on("error", (err) => {
       console.error("Worker error:", err);
       this.rejectAll(err instanceof Error ? err : new Error(String(err)));
-      // Let the worker exit; ensure we create a fresh one next time.
       this.worker = null;
     });
     worker.on("exit", (code) => {
       if (!this.isClosing && code !== 0) {
-        console.error(
-          `Worker crashed (code ${code}). It will auto-restart on next request.`,
-        );
-        const error = new Error(`Worker exited with code ${code}`);
-        this.rejectAll(error);
+        console.error(`Worker crashed (code ${code}). It will auto-restart on next request.`);
+        this.rejectAll(new Error(`Worker exited with code ${code}`));
       }
-      // Clear reference so ensureWorker will spawn a new worker on demand.
       this.worker = null;
     });
 
@@ -70,15 +65,10 @@ export class WorkerManager {
 
     if (pending.timeoutId) clearTimeout(pending.timeoutId);
 
-    if (error) {
-      pending.reject(new Error(error));
-    } else if (hybrids !== undefined) {
-      pending.resolve(hybrids);
-    } else if (query !== undefined) {
-      pending.resolve(query);
-    } else {
-      pending.resolve(undefined);
-    }
+    if (error) pending.reject(new Error(error));
+    else if (hybrids !== undefined) pending.resolve(hybrids);
+    else if (query !== undefined) pending.resolve(query);
+    else pending.resolve(undefined);
 
     this.pendingRequests.delete(id);
   }
@@ -98,7 +88,23 @@ export class WorkerManager {
     return this.worker;
   }
 
-  private async sendToWorker<T>(
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    if (this.isClosing) {
+      return Promise.reject(new Error("WorkerManager is closing"));
+    }
+
+    const run = this.queue.then(task, task);
+
+    // Keep the queue alive even if this task fails.
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return run;
+  }
+
+  private async sendToWorkerUnqueued<T>(
     buildPayload: (id: string) => WorkerRequest,
   ): Promise<T> {
     const worker = this.ensureWorker();
@@ -111,9 +117,7 @@ export class WorkerManager {
         const pending = this.pendingRequests.get(id);
         if (pending) {
           this.pendingRequests.delete(id);
-          reject(
-            new Error(`Worker request timed out after ${WORKER_TIMEOUT_MS}ms`),
-          );
+          reject(new Error(`Worker request timed out after ${WORKER_TIMEOUT_MS}ms`));
         }
       }, WORKER_TIMEOUT_MS);
 
@@ -127,44 +131,53 @@ export class WorkerManager {
     });
   }
 
+  private async sendToWorker<T>(
+    buildPayload: (id: string) => WorkerRequest,
+  ): Promise<T> {
+    return this.enqueue(() => this.sendToWorkerUnqueued<T>(buildPayload));
+  }
+
   async computeHybrid(
     texts: string[],
   ): Promise<Array<{ dense: number[]; colbert: Buffer; scale: number }>> {
-    return this.sendToWorker<Array<{ dense: number[]; colbert: Buffer; scale: number }>>((id) => ({
-      id,
-      hybrid: { texts },
-    }));
+    return this.sendToWorker((id) => ({ id, hybrid: { texts } }));
   }
 
   async encodeQuery(
     text: string,
   ): Promise<{ dense: number[]; colbert: number[][]; colbertDim: number }> {
-    return this.sendToWorker<{ dense: number[]; colbert: number[][]; colbertDim: number }>((id) => ({
-      id,
-      query: { text },
-    }));
+    return this.sendToWorker((id) => ({ id, query: { text } }));
   }
 
   async close(): Promise<void> {
     this.isClosing = true;
+
+    // Let any queued task finish or fail, then shutdown.
     try {
-      this.worker?.postMessage({ type: "shutdown" });
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    } catch (err) {
-      // Silent cleanup
+      await this.queue;
+    } catch {
+      // ignore
     }
+
+    try {
+      this.worker?.postMessage({ type: "shutdown" } satisfies WorkerRequest);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } catch {
+      // ignore
+    }
+
     try {
       if (this.worker) {
         await this.worker.terminate();
       }
-    } catch (_err) {
-      // Silent cleanup
+    } catch {
+      // ignore
     } finally {
       this.worker = null;
       this.pendingRequests.clear();
+      this.queue = Promise.resolve();
     }
   }
 }
 
-// Singleton instance to avoid spinning up multiple heavy embedding workers.
 export const workerManager = new WorkerManager();
