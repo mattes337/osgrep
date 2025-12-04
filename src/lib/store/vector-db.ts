@@ -101,13 +101,7 @@ export class VectorDB {
     const sanitized = records.map((rec) => ({
       ...rec,
       vector: Array.from(rec.vector),
-      colbert: Buffer.isBuffer(rec.colbert)
-        ? rec.colbert
-        : Buffer.from(
-          rec.colbert instanceof Int8Array
-            ? rec.colbert
-            : new Int8Array(rec.colbert),
-        ),
+      colbert: Buffer.from(rec.colbert),
       pooled_colbert_48d: rec.pooled_colbert_48d
         ? Array.from(rec.pooled_colbert_48d)
         : undefined,

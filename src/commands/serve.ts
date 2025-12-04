@@ -8,7 +8,6 @@ import { VectorDB } from "../lib/store/vector-db";
 import { Searcher } from "../lib/search/searcher";
 import { initialSync } from "../lib/index/syncer";
 import { createIndexingSpinner } from "../lib/index/sync-helpers";
-import { gracefulExit } from "../lib/utils/exit";
 
 export const serve = new Command("serve")
   .description("Run osgrep as a background server with live indexing")
@@ -52,7 +51,16 @@ export const serve = new Command("serve")
 
         if (req.method === "POST" && req.url === "/search") {
           const chunks: Buffer[] = [];
-          req.on("data", (chunk) => chunks.push(chunk));
+          req.on("data", (chunk) => {
+            chunks.push(chunk);
+            const size = Buffer.concat(chunks).length;
+            if (size > 1_000_000) {
+              res.statusCode = 413;
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ error: "payload_too_large" }));
+              req.destroy();
+            }
+          });
           req.on("end", async () => {
             try {
               const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf-8")) : {};
@@ -93,7 +101,7 @@ export const serve = new Command("serve")
 
       const shutdown = async () => {
         server.close();
-        await gracefulExit();
+        process.exit(0);
       };
 
       process.on("SIGINT", shutdown);
@@ -102,6 +110,5 @@ export const serve = new Command("serve")
       const message = error instanceof Error ? error.message : "Unknown error";
       console.error("Serve failed:", message);
       process.exitCode = 1;
-      await gracefulExit(1);
     }
   });

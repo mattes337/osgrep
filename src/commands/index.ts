@@ -7,7 +7,6 @@ import {
   formatDryRunSummary,
 } from "../lib/index/sync-helpers";
 import { initialSync } from "../lib/index/syncer";
-import { gracefulExit } from "../lib/utils/exit";
 import { ensureGrammars } from "../lib/index/grammar-loader";
 import { ensureProjectPaths, findProjectRoot } from "../lib/utils/project-root";
 import { VectorDB } from "../lib/store/vector-db";
@@ -75,10 +74,10 @@ export const index = new Command("index")
               includeTotal: true,
             }),
           );
-          await gracefulExit();
           return;
         }
 
+        spinner.text = "Building search index (FTS)...";
         await vectorDb.createFTSIndex();
 
         spinner.succeed(
@@ -92,7 +91,5 @@ export const index = new Command("index")
       const message = error instanceof Error ? error.message : "Unknown error";
       console.error("Failed to index:", message);
       process.exitCode = 1;
-      await gracefulExit(1);
     }
-    await gracefulExit();
   });

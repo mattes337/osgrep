@@ -5,7 +5,6 @@ import { ensureSetup } from "../lib/setup/setup-helpers";
 import type { FileMetadata, SearchResponse } from "../lib/store/types";
 import { createIndexingSpinner, formatDryRunSummary } from "../lib/index/sync-helpers";
 import { formatTextResults, type TextResult } from "../lib/utils/formatter";
-import { gracefulExit } from "../lib/utils/exit";
 import { initialSync } from "../lib/index/syncer";
 import { ensureProjectPaths, findProjectRoot } from "../lib/utils/project-root";
 import { VectorDB } from "../lib/store/vector-db";
@@ -137,7 +136,6 @@ export const search: Command = new CommanderCommand("search")
                 includeTotal: true,
               }),
             );
-            await gracefulExit();
             return;
           }
 
@@ -162,7 +160,6 @@ export const search: Command = new CommanderCommand("search")
 
       if (!searchResult.data.length) {
         console.log("No matches found.");
-        await gracefulExit();
         return;
       }
 
@@ -187,5 +184,4 @@ export const search: Command = new CommanderCommand("search")
       console.error("Search failed:", message);
       process.exitCode = 1;
     }
-    await gracefulExit();
   });

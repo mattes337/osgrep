@@ -33,25 +33,6 @@ function buildIgnoreFilter(projectRoot: string) {
   return filter;
 }
 
-async function countFiles(
-  globOptions: GlobOptions,
-  filter: ReturnType<typeof buildIgnoreFilter>,
-  signal?: AbortSignal,
-): Promise<number> {
-  let total = 0;
-  for await (const entry of fg.stream("**/*", globOptions)) {
-    if (signal?.aborted) break;
-    const relPath = entry.toString();
-    if (filter.ignores(relPath)) continue;
-    const cwd = globOptions.cwd ?? process.cwd();
-    const absPath = path.join(cwd, relPath);
-    if (isIndexableFile(absPath)) {
-      total += 1;
-    }
-  }
-  return total;
-}
-
 async function flushBatch(
   db: VectorDB,
   meta: MetaCache,
@@ -93,7 +74,7 @@ export async function initialSync(options: SyncOptions): Promise<InitialSyncResu
     suppressErrors: true,
   };
 
-  const total = await countFiles(globOptions, ignoreFilter, signal);
+  const total = 0;
   onProgress?.({ processed: 0, indexed: 0, total, filePath: "Scanning..." });
 
   const storedPaths = await vectorDb.listPaths();
@@ -115,6 +96,8 @@ export async function initialSync(options: SyncOptions): Promise<InitialSyncResu
 
     try {
       const stats = await fs.promises.stat(absPath);
+      if (!isIndexableFile(absPath, stats.size)) continue;
+
       const cached = metaCache.get(relPath);
 
       if (

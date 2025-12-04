@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { Command } from "commander";
 import { ensureSetup } from "../lib/setup/setup-helpers";
 import { MODEL_IDS, PATHS } from "../config";
-import { gracefulExit } from "../lib/utils/exit";
 
 
 import { ensureGrammars } from "../lib/index/grammar-loader";
@@ -53,8 +52,4 @@ export const setup = new Command("setup")
     console.log(`   osgrep index              # Index your repository`);
     console.log(`   osgrep "search query"     # Search your code`);
     console.log(`   osgrep doctor             # Check health status`);
-
-
-
-    await gracefulExit();
   });

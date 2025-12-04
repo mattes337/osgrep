@@ -67,22 +67,26 @@ export function computeFileHash(
 }
 
 // Check if a file should be indexed (extension and size).
-export function isIndexableFile(filePath: string): boolean {
+export function isIndexableFile(filePath: string, size?: number): boolean {
     const ext = extname(filePath).toLowerCase();
     const basename = path.basename(filePath).toLowerCase();
     if (!INDEXABLE_EXTENSIONS.has(ext) && !INDEXABLE_EXTENSIONS.has(basename)) {
         return false;
     }
 
+    const withinSize = (s: number) =>
+        s > 0 && s <= MAX_FILE_SIZE_BYTES;
+
+    if (typeof size === "number") {
+        return withinSize(size);
+    }
+
     try {
         const stats = fs.statSync(filePath);
-        if (stats.size > MAX_FILE_SIZE_BYTES) return false;
-        if (stats.size === 0) return false;
+        return withinSize(stats.size);
     } catch {
         return false;
     }
-
-    return true;
 }
 
 export function isIndexablePath(filePath: string): boolean {

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Command } from "commander";
 import { MODEL_IDS, PATHS } from "../config";
-import { gracefulExit } from "../lib/utils/exit";
+import { findProjectRoot } from "../lib/utils/project-root";
 
 export const doctor = new Command("doctor")
   .description("Check osgrep health and paths")
@@ -42,10 +42,17 @@ export const doctor = new Command("doctor")
       );
     }
 
+    console.log(`\nLocal Project: ${process.cwd()}`);
+    const projectRoot = findProjectRoot(process.cwd());
+    if (projectRoot) {
+      console.log(`✅ Index found at: ${path.join(projectRoot, ".osgrep")}`);
+    } else {
+      console.log(`ℹ️  No index found in current directory (run 'osgrep index' to create one)`);
+    }
+
     console.log(
       `\nSystem: ${os.platform()} ${os.arch()} | Node: ${process.version}`,
     );
     console.log("\nIf you see ✅ everywhere, you are ready to search!");
 
-    await gracefulExit();
   });
