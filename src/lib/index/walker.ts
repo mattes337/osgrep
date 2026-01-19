@@ -96,7 +96,17 @@ async function* _walk(
     if (isIgnored) continue;
 
     if (entry.isDirectory()) {
-      // 2. Prepare scope for the new directory
+      // 2. Check if this directory has its own .osgrep index (skip entire subtree)
+      const osgrepPath = path.join(absPath, ".osgrep");
+      try {
+        await fs.access(osgrepPath);
+        // Directory has its own index - skip this subtree
+        continue;
+      } catch {
+        // No .osgrep folder - proceed with walking
+      }
+
+      // 3. Prepare scope for the new directory
       const childIgnore = await getIgnoreFilter(absPath, ignoreFiles);
       if (childIgnore) {
         // Push new scope

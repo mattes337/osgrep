@@ -22,6 +22,7 @@ import { gracefulExit } from "../lib/utils/exit";
 import { formatTextResults, type TextResult } from "../lib/utils/formatter";
 import { isLocked } from "../lib/utils/lock";
 import { ensureProjectPaths, findProjectRoot } from "../lib/utils/project-root";
+import { discoverIndexes } from "../lib/utils/recursive-discovery";
 import { getServerForProject } from "../lib/utils/server-registry";
 
 function toTextResults(data: SearchResponse["data"]): TextResult[] {
@@ -372,6 +373,11 @@ export const search: Command = new CommanderCommand("search")
     false,
   )
   .option("--plain", "Disable ANSI colors and use simpler formatting", false)
+  .option(
+    "-R, --recursive",
+    "Search recursively across all nested .osgrep indexes",
+    false,
+  )
 
   .option(
     "-s, --sync",
@@ -399,6 +405,7 @@ export const search: Command = new CommanderCommand("search")
       minScore: string;
       compact: boolean;
       plain: boolean;
+      recursive: boolean;
       sync: boolean;
       dryRun: boolean;
       skeleton: boolean;
@@ -509,6 +516,128 @@ export const search: Command = new CommanderCommand("search")
             e,
           );
         }
+      }
+    }
+
+    // Handle recursive search across multiple indexes
+    if (options.recursive) {
+      try {
+        await ensureSetup();
+        const searchRoot = exec_path ? path.resolve(exec_path) : root;
+
+        // Discover all nested indexes
+        const indexes = await discoverIndexes(searchRoot);
+
+        if (indexes.length === 0) {
+          console.log("No .osgrep indexes found in the directory tree.");
+          await gracefulExit();
+          return;
+        }
+
+        if (process.env.DEBUG) {
+          console.error(
+            `[search] Found ${indexes.length} indexes:`,
+            indexes.map((i) => i.root),
+          );
+        }
+
+        // Search all indexes in parallel
+        const searchPromises = indexes.map(async (idx) => {
+          const db = new VectorDB(idx.lancedbDir);
+          try {
+            const hasRows = await db.hasAnyRows();
+            if (!hasRows) return { idx, results: [] as ChunkType[] };
+
+            const searcher = new Searcher(db);
+            const result = await searcher.search(
+              pattern,
+              parseInt(options.m, 10),
+              { rerank: true },
+            );
+
+            // Prefix paths with index root for disambiguation
+            const prefixedData: ChunkType[] = result.data.map((chunk) => {
+              const relPath = (chunk.metadata as FileMetadata)?.path || "";
+              const absPath = path.join(idx.root, relPath);
+              return {
+                ...chunk,
+                metadata: {
+                  ...chunk.metadata,
+                  path: path.relative(searchRoot, absPath),
+                },
+              } as ChunkType;
+            });
+
+            return { idx, results: prefixedData };
+          } finally {
+            await db.close();
+          }
+        });
+
+        const allResults = await Promise.all(searchPromises);
+
+        // Merge and sort all results by score
+        const mergedData: ChunkType[] = allResults
+          .flatMap((r) => r.results)
+          .filter((r) => typeof r.score !== "number" || r.score >= minScore)
+          .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+          .slice(0, parseInt(options.m, 10));
+
+        if (options.skeleton) {
+          await outputSkeletons(mergedData, searchRoot, parseInt(options.m, 10), null);
+          await gracefulExit();
+          return;
+        }
+
+        const compactHits = options.compact ? toCompactHits(mergedData) : [];
+
+        if (options.compact) {
+          const compactText = compactHits.length
+            ? formatCompactTable(compactHits, searchRoot, pattern, {
+                isTTY: !!process.stdout.isTTY,
+                plain: !!options.plain,
+              })
+            : "No matches found.";
+          console.log(compactText);
+          await gracefulExit();
+          return;
+        }
+
+        if (!mergedData.length) {
+          console.log("No matches found.");
+          await gracefulExit();
+          return;
+        }
+
+        const isTTY = process.stdout.isTTY;
+        const shouldBePlain = options.plain || !isTTY;
+
+        if (shouldBePlain) {
+          const mappedResults = toTextResults(mergedData);
+          const output = formatTextResults(mappedResults, pattern, searchRoot, {
+            isPlain: true,
+            compact: options.compact,
+            content: options.content,
+            perFile: parseInt(options.perFile, 10),
+            showScores: options.scores,
+          });
+          console.log(output);
+        } else {
+          const { formatResults } = await import("../lib/output/formatter");
+          const output = formatResults(mergedData, searchRoot, {
+            content: options.content,
+          });
+          console.log(output);
+        }
+
+        await gracefulExit();
+        return; // EXIT recursive search
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        console.error("Recursive search failed:", message);
+        process.exitCode = 1;
+        await gracefulExit();
+        return;
       }
     }
 

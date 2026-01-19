@@ -9,9 +9,14 @@ import { createIndexingSpinner } from "../lib/index/sync-helpers";
 import { initialSync } from "../lib/index/syncer";
 import { Searcher } from "../lib/search/searcher";
 import { ensureSetup } from "../lib/setup/setup-helpers";
+import type { ChunkType, FileMetadata } from "../lib/store/types";
 import { VectorDB } from "../lib/store/vector-db";
 import { gracefulExit } from "../lib/utils/exit";
 import { ensureProjectPaths, findProjectRoot } from "../lib/utils/project-root";
+import {
+  discoverIndexes,
+  type DiscoveredIndex,
+} from "../lib/utils/recursive-discovery";
 import {
   getServerForProject,
   isProcessRunning,
@@ -19,6 +24,12 @@ import {
   registerServer,
   unregisterServer,
 } from "../lib/utils/server-registry";
+
+interface IndexInstance {
+  index: DiscoveredIndex;
+  db: VectorDB;
+  searcher: Searcher;
+}
 
 export const serve = new Command("serve")
   .description("Run osgrep as a background server with live indexing")
@@ -28,8 +39,13 @@ export const serve = new Command("serve")
     process.env.OSGREP_PORT || "4444",
   )
   .option("-b, --background", "Run in background", false)
+  .option(
+    "-R, --recursive",
+    "Serve recursively across all nested .osgrep indexes",
+    false,
+  )
   .action(async (_args, cmd) => {
-    const options: { port: string; background: boolean } =
+    const options: { port: string; background: boolean; recursive: boolean } =
       cmd.optsWithGlobals();
     let port = parseInt(options.port, 10);
     const startPort = port;
@@ -70,12 +86,50 @@ export const serve = new Command("serve")
     // Propagate project root to worker processes
     process.env.OSGREP_PROJECT_ROOT = projectRoot;
 
+    // Storage for multiple index instances in recursive mode
+    const indexInstances: IndexInstance[] = [];
+    let singleVectorDb: VectorDB | null = null;
+    let singleSearcher: Searcher | null = null;
+
     try {
       await ensureSetup();
       await ensureGrammars(console.log, { silent: true });
 
-      const vectorDb = new VectorDB(paths.lancedbDir);
-      const searcher = new Searcher(vectorDb);
+      if (options.recursive) {
+        // Discover all nested indexes
+        const indexes = await discoverIndexes(projectRoot);
+
+        if (indexes.length === 0) {
+          console.log("No .osgrep indexes found. Creating one for current directory...");
+          // Fall back to single index mode
+          const db = new VectorDB(paths.lancedbDir);
+          singleVectorDb = db;
+          singleSearcher = new Searcher(db);
+        } else {
+          console.log(`Found ${indexes.length} indexes:`);
+          for (const idx of indexes) {
+            console.log(`  - ${path.relative(projectRoot, idx.root) || "."}`);
+            const db = new VectorDB(idx.lancedbDir);
+            indexInstances.push({
+              index: idx,
+              db,
+              searcher: new Searcher(db),
+            });
+          }
+        }
+      } else {
+        const db = new VectorDB(paths.lancedbDir);
+        singleVectorDb = db;
+        singleSearcher = new Searcher(db);
+      }
+
+      // Use vectorDb for compatibility (points to first or single instance)
+      const vectorDb = singleVectorDb ?? indexInstances[0]?.db;
+      const searcher = singleSearcher ?? indexInstances[0]?.searcher;
+
+      if (!vectorDb || !searcher) {
+        throw new Error("Failed to initialize database");
+      }
 
       // Only show spinner if not in background (or check isTTY)
       // If spawned in background with stdio ignore, console.log goes nowhere.
@@ -109,6 +163,21 @@ export const serve = new Command("serve")
             res.statusCode = 200;
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify({ status: "ok" }));
+            return;
+          }
+
+          // Endpoint to list discovered indexes (recursive mode)
+          if (req.method === "GET" && req.url === "/indexes") {
+            const indexes =
+              indexInstances.length > 0
+                ? indexInstances.map((inst) => ({
+                    root: path.relative(projectRoot, inst.index.root) || ".",
+                    absolutePath: inst.index.root,
+                  }))
+                : [{ root: ".", absolutePath: projectRoot }];
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ indexes, recursive: options.recursive }));
             return;
           }
 
@@ -174,15 +243,65 @@ export const serve = new Command("serve")
                   ac.abort();
                 });
 
-                const result = await searcher.search(
-                  query,
-                  limit,
-                  { rerank: true },
-                  undefined,
-                  searchPath,
-                  undefined, // intent
-                  ac.signal,
-                );
+                let mergedResults: ChunkType[];
+
+                if (indexInstances.length > 0) {
+                  // Recursive mode: search all indexes in parallel
+                  const searchPromises = indexInstances.map(async (inst): Promise<ChunkType[]> => {
+                    try {
+                      const result = await inst.searcher.search(
+                        query,
+                        limit,
+                        { rerank: true },
+                        undefined,
+                        searchPath,
+                        undefined,
+                        ac.signal,
+                      );
+
+                      // Prefix paths with index root for disambiguation
+                      return result.data.map((chunk) => {
+                        const relPath =
+                          (chunk.metadata as FileMetadata)?.path || "";
+                        const absPath = path.join(inst.index.root, relPath);
+                        return {
+                          ...chunk,
+                          metadata: {
+                            ...chunk.metadata,
+                            path: path.relative(projectRoot, absPath),
+                          },
+                        } as ChunkType;
+                      });
+                    } catch (err) {
+                      if (err instanceof Error && err.name === "AbortError") {
+                        throw err;
+                      }
+                      console.error(
+                        `[serve] Search failed for ${inst.index.root}:`,
+                        err,
+                      );
+                      return [];
+                    }
+                  });
+
+                  const allResults = await Promise.all(searchPromises);
+                  mergedResults = allResults
+                    .flat()
+                    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+                    .slice(0, limit);
+                } else {
+                  // Single index mode
+                  const result = await searcher.search(
+                    query,
+                    limit,
+                    { rerank: true },
+                    undefined,
+                    searchPath,
+                    undefined, // intent
+                    ac.signal,
+                  );
+                  mergedResults = result.data;
+                }
 
                 if (ac.signal.aborted) {
                   // Request was cancelled, don't write response if possible
@@ -192,7 +311,7 @@ export const serve = new Command("serve")
 
                 res.statusCode = 200;
                 res.setHeader("Content-Type", "application/json");
-                res.end(JSON.stringify({ results: result.data }));
+                res.end(JSON.stringify({ results: mergedResults }));
               } catch (err) {
                 if (err instanceof Error && err.name === "AbortError") {
                   // Request cancelled
@@ -283,11 +402,25 @@ export const serve = new Command("serve")
           setTimeout(resolve, 5000);
         });
 
-        // Clean close of vectorDB
-        try {
-          await vectorDb.close();
-        } catch (e) {
-          console.error("Error closing vector DB:", e);
+        // Close all database instances
+        if (indexInstances.length > 0) {
+          // Recursive mode: close all instances
+          await Promise.all(
+            indexInstances.map(async (inst) => {
+              try {
+                await inst.db.close();
+              } catch (e) {
+                console.error(`Error closing DB for ${inst.index.root}:`, e);
+              }
+            }),
+          );
+        } else if (singleVectorDb) {
+          // Single mode
+          try {
+            await singleVectorDb.close();
+          } catch (e) {
+            console.error("Error closing vector DB:", e);
+          }
         }
         await gracefulExit();
       };
