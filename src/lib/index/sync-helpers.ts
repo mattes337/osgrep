@@ -1,5 +1,10 @@
 import { relative } from "node:path";
 import ora, { type Ora } from "ora";
+import {
+  isAudioFile,
+  isVideoFile,
+  isShortcutFile,
+} from "../convert";
 
 interface IndexingSpinner {
   spinner: Ora;
@@ -118,7 +123,19 @@ export function createIndexingSpinner(
         ? `(${info.processed}/${info.total})`
         : `(${info.processed} files)`;
 
-      spinner.text = `Indexing files ${progressSuffix}${fileSuffix}`;
+      // Determine action label based on file type
+      let action = "Indexing";
+      if (info.filePath) {
+        if (isAudioFile(info.filePath)) {
+          action = "Transcribing audio";
+        } else if (isVideoFile(info.filePath)) {
+          action = "Transcribing video";
+        } else if (isShortcutFile(info.filePath)) {
+          action = "Transcribing YouTube";
+        }
+      }
+
+      spinner.text = `${action} ${progressSuffix}${fileSuffix}`;
     },
   };
 }
