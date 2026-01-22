@@ -1,5 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
+import * as fs from "node:fs";
 
 export const MODEL_IDS = {
   embed: "onnx-community/granite-embedding-30m-english-ONNX",
@@ -60,8 +61,78 @@ export const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 2; // 2MB limit for indexing
 // Conversion cache directory (inside project's .osgrep)
 export const CONVERTED_DIR = "converted";
 
+// Load user config from ~/.osgrep/config.json (lazy, cached)
+interface UserConfigWhisper {
+  apiUrl?: string;
+  authToken?: string;
+  youtubeApiUrl?: string;
+}
+
+let _userConfigCache: { whisper?: UserConfigWhisper } | null = null;
+
+function loadUserConfigSync(): { whisper?: UserConfigWhisper } {
+  if (_userConfigCache !== null) return _userConfigCache;
+
+  const configPath = path.join(os.homedir(), ".osgrep", "config.json");
+  try {
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, "utf-8");
+      _userConfigCache = JSON.parse(content);
+      return _userConfigCache ?? {};
+    }
+  } catch {
+    // Ignore errors, return empty config
+  }
+  _userConfigCache = {};
+  return _userConfigCache;
+}
+
+// Whisper API configuration for audio/video transcription
+// Priority: environment variables > user config file (~/.osgrep/config.json)
+export const WHISPER_CONFIG = {
+  get apiUrl(): string {
+    return process.env.WHISPER_API_URL || loadUserConfigSync().whisper?.apiUrl || "";
+  },
+  get authToken(): string {
+    return process.env.WHISPER_AUTH_TOKEN || loadUserConfigSync().whisper?.authToken || "";
+  },
+  get youtubeApiUrl(): string {
+    return process.env.WHISPER_YOUTUBE_API_URL || loadUserConfigSync().whisper?.youtubeApiUrl || "";
+  },
+  get isConfigured(): boolean {
+    return Boolean(this.apiUrl && this.authToken);
+  },
+};
+
+// Audio/video extensions (only processed if WHISPER_CONFIG.isConfigured)
+export const AUDIO_EXTENSIONS: Set<string> = new Set([
+  ".mp3",
+  ".wav",
+  ".flac",
+  ".ogg",
+  ".m4a",
+  ".aac",
+  ".wma",
+]);
+
+export const VIDEO_EXTENSIONS: Set<string> = new Set([
+  ".mp4",
+  ".mkv",
+  ".webm",
+  ".avi",
+  ".mov",
+  ".wmv",
+  ".flv",
+]);
+
+// Windows shortcut extensions (for YouTube URL detection)
+export const SHORTCUT_EXTENSIONS: Set<string> = new Set([
+  ".url", // Internet shortcut (INI format)
+  ".lnk", // Windows shortcut (binary format)
+]);
+
 // Document formats that can be converted to markdown before indexing
-export const CONVERTIBLE_EXTENSIONS: Set<string> = new Set([
+const BASE_CONVERTIBLE_EXTENSIONS: string[] = [
   // Documents
   ".pdf",
   ".docx",
@@ -76,6 +147,14 @@ export const CONVERTIBLE_EXTENSIONS: Set<string> = new Set([
   ".ipynb",
   // Archives (recursive extraction)
   ".zip",
+];
+
+// Build convertible extensions set (includes audio/video/shortcuts only if Whisper is configured)
+export const CONVERTIBLE_EXTENSIONS: Set<string> = new Set([
+  ...BASE_CONVERTIBLE_EXTENSIONS,
+  ...(WHISPER_CONFIG.isConfigured
+    ? [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS, ...SHORTCUT_EXTENSIONS]
+    : []),
 ]);
 
 // Extensions we consider for indexing to avoid binary noise and improve relevance.

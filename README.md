@@ -249,6 +249,68 @@ Checks installation health, model paths, and database integrity.
 osgrep doctor
 ```
 
+### `osgrep config`
+
+Configure osgrep settings interactively, including audio/video transcription support.
+
+```bash
+osgrep config              # Interactive configuration wizard
+osgrep config --show       # Show current configuration
+osgrep config --reset      # Reset to defaults
+```
+
+**Options:**
+
+| Flag | Description |
+| --- | --- |
+| `--show` | Display current configuration |
+| `--reset` | Reset all configuration to defaults |
+
+## Audio/Video Transcription
+
+osgrep can index audio and video files by transcribing them using a Whisper API. This feature also supports YouTube URLs in Windows shortcut files (`.url`, `.lnk`).
+
+### Supported Formats
+
+| Type | Extensions |
+| --- | --- |
+| **Audio** | `.mp3`, `.wav`, `.flac`, `.ogg`, `.m4a`, `.aac`, `.wma` |
+| **Video** | `.mp4`, `.mkv`, `.webm`, `.avi`, `.mov`, `.wmv`, `.flv` |
+| **YouTube** | `.url`, `.lnk` shortcuts pointing to YouTube videos |
+
+### Setup
+
+Run the configuration wizard to enable transcription:
+
+```bash
+osgrep config
+```
+
+You'll be prompted to enter:
+- **Whisper API URL** - Your transcription service endpoint
+- **Auth Token** - Authentication token for the API
+- **YouTube API URL** (optional) - Separate endpoint for YouTube transcription
+
+Configuration is stored in `~/.osgrep/config.json`.
+
+### Environment Variables
+
+Alternatively, set environment variables (these take priority over the config file):
+
+```bash
+export WHISPER_API_URL="https://your-whisper-api.example.com"
+export WHISPER_AUTH_TOKEN="your_auth_token"
+export WHISPER_YOUTUBE_API_URL="https://your-youtube-api.example.com"  # optional
+```
+
+### How It Works
+
+1. **Audio files** are sent directly to the Whisper API for transcription
+2. **Video files** have their audio extracted (via FFmpeg) before transcription
+3. **YouTube shortcuts** (`.url`, `.lnk`) are parsed to extract the YouTube URL, which is then sent to the YouTube transcription API
+
+The transcribed text is converted to markdown and indexed like any other document.
+
 ## Performance & Architecture
 
 osgrep is designed to be a "good citizen" on your machine:
