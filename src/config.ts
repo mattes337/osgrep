@@ -57,6 +57,27 @@ export const PATHS = {
 
 export const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 2; // 2MB limit for indexing
 
+// Conversion cache directory (inside project's .osgrep)
+export const CONVERTED_DIR = "converted";
+
+// Document formats that can be converted to markdown before indexing
+export const CONVERTIBLE_EXTENSIONS: Set<string> = new Set([
+  // Documents
+  ".pdf",
+  ".docx",
+  ".xlsx",
+  ".pptx",
+  // Web & Data
+  ".htm",
+  ".csv",
+  ".rss",
+  ".atom",
+  // Notebooks
+  ".ipynb",
+  // Archives (recursive extraction)
+  ".zip",
+]);
+
 // Extensions we consider for indexing to avoid binary noise and improve relevance.
 export const INDEXABLE_EXTENSIONS: Set<string> = new Set([
   ".ts",
@@ -104,4 +125,6 @@ export const INDEXABLE_EXTENSIONS: Set<string> = new Set([
   ".dockerfile",
   "dockerfile",
   "makefile",
+  // Convertible document formats (converted to markdown before indexing)
+  ...CONVERTIBLE_EXTENSIONS,
 ]);

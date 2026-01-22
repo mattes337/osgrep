@@ -1,12 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { PATHS } from "../../config";
+import { CONVERTED_DIR, PATHS } from "../../config";
 
 export interface ProjectPaths {
   root: string;
   osgrepDir: string;
   lancedbDir: string;
   cacheDir: string;
+  convertedDir: string;
   lmdbPath: string;
   configPath: string;
 }
@@ -36,18 +37,19 @@ export function ensureProjectPaths(
   const osgrepDir = path.join(root, ".osgrep");
   const lancedbDir = path.join(osgrepDir, "lancedb");
   const cacheDir = path.join(osgrepDir, "cache");
+  const convertedDir = path.join(osgrepDir, CONVERTED_DIR);
   const lmdbPath = path.join(cacheDir, "meta.lmdb");
   const configPath = path.join(osgrepDir, "config.json");
 
   if (!options?.dryRun) {
-    [osgrepDir, lancedbDir, cacheDir].forEach((dir) => {
+    [osgrepDir, lancedbDir, cacheDir, convertedDir].forEach((dir) => {
       fs.mkdirSync(dir, { recursive: true });
     });
 
     ensureGitignoreEntry(root);
   }
 
-  return { root, osgrepDir, lancedbDir, cacheDir, lmdbPath, configPath };
+  return { root, osgrepDir, lancedbDir, cacheDir, convertedDir, lmdbPath, configPath };
 }
 
 function fileContainsEntry(filePath: string, entry: string): boolean {

@@ -3,7 +3,8 @@ import * as path from "node:path";
 import { env } from "@huggingface/transformers";
 import * as ort from "onnxruntime-node";
 import { v4 as uuidv4 } from "uuid";
-import { CONFIG, PATHS } from "../../config";
+import { CONFIG, CONVERTED_DIR, PATHS } from "../../config";
+import { ConversionCache, convertToMarkdown } from "../convert";
 import {
   buildAnchorChunk,
   type ChunkWithContext,
@@ -16,6 +17,7 @@ import {
   computeBufferHash,
   hasNullByte,
   isIndexableFile,
+  needsConversion,
   readFileSnapshot,
 } from "../utils/file-utils";
 import { maxSim } from "./colbert-math";
@@ -67,6 +69,7 @@ export class WorkerOrchestrator {
   private colbert = new ColbertModel();
   private chunker = new TreeSitterChunker();
   private skeletonizer = new Skeletonizer();
+  private conversionCache: ConversionCache | null = null;
   private initPromise: Promise<void> | null = null;
   private readonly vectorDimensions = CONFIG.VECTOR_DIM;
 
@@ -77,6 +80,13 @@ export class WorkerOrchestrator {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
+      // Initialize conversion cache if project root is set
+      if (!this.conversionCache) {
+        const convertedDir = path.join(PROJECT_ROOT, ".osgrep", CONVERTED_DIR);
+        this.conversionCache = new ConversionCache(convertedDir);
+        await this.conversionCache.init();
+      }
+
       await Promise.all([
         this.chunker.init(),
         this.skeletonizer.init(),
@@ -216,15 +226,36 @@ export class WorkerOrchestrator {
       return { vectors: [], hash, mtimeMs, size, shouldDelete: true };
     }
 
-    if (buffer.length === 0 || hasNullByte(buffer)) {
-      return { vectors: [], hash, mtimeMs, size, shouldDelete: true };
-    }
-
     onProgress?.();
     await this.ensureReady();
     onProgress?.();
 
-    const content = buffer.toString("utf-8");
+    // Determine content: convert documents or read as text
+    let content: string;
+    if (needsConversion(absolutePath)) {
+      // Check cache first
+      const cached = await this.conversionCache?.get(input.path, hash);
+      if (cached) {
+        content = cached;
+      } else {
+        try {
+          const result = await convertToMarkdown(buffer, absolutePath);
+          content = result.markdown;
+          await this.conversionCache?.set(input.path, hash, content);
+        } catch (err) {
+          // Conversion failed (encrypted, corrupted, etc.) - skip file
+          log(`[convert] Failed: ${input.path}`, err);
+          return { vectors: [], hash, mtimeMs, size, shouldDelete: true };
+        }
+      }
+    } else {
+      // Standard text file
+      if (buffer.length === 0 || hasNullByte(buffer)) {
+        return { vectors: [], hash, mtimeMs, size, shouldDelete: true };
+      }
+      content = buffer.toString("utf-8");
+    }
+
     const chunksPromise = this.chunkFile(input.path, content);
 
     // Generate skeleton in parallel

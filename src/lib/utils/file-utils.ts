@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { extname } from "node:path";
-import { INDEXABLE_EXTENSIONS, MAX_FILE_SIZE_BYTES } from "../../config";
+import {
+  CONVERTIBLE_EXTENSIONS,
+  INDEXABLE_EXTENSIONS,
+  MAX_FILE_SIZE_BYTES,
+} from "../../config";
 
 export function computeBufferHash(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
@@ -64,6 +68,14 @@ export function isIndexableFile(filePath: string, size?: number): boolean {
 
 export function isIndexablePath(filePath: string): boolean {
   return isIndexableFile(filePath);
+}
+
+/**
+ * Check if a file needs conversion to markdown before indexing.
+ */
+export function needsConversion(filePath: string): boolean {
+  const ext = extname(filePath).toLowerCase();
+  return CONVERTIBLE_EXTENSIONS.has(ext);
 }
 
 export function formatDenseSnippet(text: string, maxLength = 1500): string {
