@@ -71,6 +71,7 @@
     "simsimd": "^6.5.5",
     "uuid": "^9.0.1",
     "web-tree-sitter": "^0.25.10",
+    "youtube-transcript": "^1.2.1",
     "zod": "^4.1.12"
   },
   "devDependencies": {

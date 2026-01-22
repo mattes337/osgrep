@@ -43,7 +43,7 @@ export function isShortcutFile(filePath: string): boolean {
 }
 
 /**
- * YouTube URL patterns
+ * YouTube URL patterns - capture video ID in group 1
  */
 const YOUTUBE_PATTERNS = [
   /^https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
@@ -52,6 +52,19 @@ const YOUTUBE_PATTERNS = [
   /^https?:\/\/(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]+)/,
   /^https?:\/\/(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]+)/,
 ];
+
+/**
+ * Extract video ID from YouTube URL
+ */
+function extractYouTubeVideoId(url: string): string | null {
+  for (const pattern of YOUTUBE_PATTERNS) {
+    const match = url.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  return null;
+}
 
 /**
  * Check if a URL is a YouTube video URL
@@ -119,9 +132,30 @@ async function extractUrlFromShortcut(
 }
 
 /**
- * Transcribe YouTube video using Modal API
+ * Try to fetch transcript from YouTube's official caption API
+ * Returns null if no captions are available
  */
-async function transcribeYouTube(url: string): Promise<string> {
+async function fetchYouTubeOfficialTranscript(videoId: string): Promise<string | null> {
+  try {
+    const { YoutubeTranscript } = await import("youtube-transcript");
+    const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
+
+    if (!transcriptItems || transcriptItems.length === 0) {
+      return null;
+    }
+
+    // Combine all transcript segments into a single text
+    return transcriptItems.map(item => item.text).join(" ");
+  } catch {
+    // Captions not available or other error - return null to trigger fallback
+    return null;
+  }
+}
+
+/**
+ * Transcribe YouTube video using Modal API (fallback)
+ */
+async function transcribeYouTubeWithModal(url: string): Promise<string> {
   const youtubeApiUrl =
     WHISPER_CONFIG.youtubeApiUrl ||
     WHISPER_CONFIG.apiUrl.replace(
@@ -145,6 +179,24 @@ async function transcribeYouTube(url: string): Promise<string> {
 
   const result = await response.json();
   return result.text || result.transcript || "";
+}
+
+/**
+ * Transcribe YouTube video - tries official captions first, falls back to Modal API
+ */
+async function transcribeYouTube(url: string): Promise<string> {
+  const videoId = extractYouTubeVideoId(url);
+
+  if (videoId) {
+    // Try official YouTube captions first
+    const officialTranscript = await fetchYouTubeOfficialTranscript(videoId);
+    if (officialTranscript) {
+      return officialTranscript;
+    }
+  }
+
+  // Fall back to Modal API for Whisper transcription
+  return transcribeYouTubeWithModal(url);
 }
 
 /**
