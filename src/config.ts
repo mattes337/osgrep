@@ -61,6 +61,9 @@ export const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 2; // 2MB limit for indexing
 // Conversion cache directory (inside project's .osgrep)
 export const CONVERTED_DIR = "converted";
 
+// Conversion storage mode type
+export type ConversionStorageMode = "cache" | "alongside";
+
 // Load user config from ~/.osgrep/config.json (lazy, cached)
 interface UserConfigWhisper {
   apiUrl?: string;
@@ -68,9 +71,13 @@ interface UserConfigWhisper {
   youtubeApiUrl?: string;
 }
 
-let _userConfigCache: { whisper?: UserConfigWhisper } | null = null;
+interface UserConfigConversion {
+  storageMode?: ConversionStorageMode;
+}
 
-function loadUserConfigSync(): { whisper?: UserConfigWhisper } {
+let _userConfigCache: { whisper?: UserConfigWhisper; conversion?: UserConfigConversion } | null = null;
+
+function loadUserConfigSync(): { whisper?: UserConfigWhisper; conversion?: UserConfigConversion } {
   if (_userConfigCache !== null) return _userConfigCache;
 
   const configPath = path.join(os.homedir(), ".osgrep", "config.json");
@@ -85,6 +92,13 @@ function loadUserConfigSync(): { whisper?: UserConfigWhisper } {
   }
   _userConfigCache = {};
   return _userConfigCache;
+}
+
+/**
+ * Get the conversion storage mode (defaults to "cache")
+ */
+export function getConversionStorageMode(): ConversionStorageMode {
+  return loadUserConfigSync().conversion?.storageMode ?? "cache";
 }
 
 // Whisper API configuration for audio/video transcription

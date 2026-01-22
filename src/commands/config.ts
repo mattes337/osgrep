@@ -4,6 +4,7 @@ import {
   loadUserConfig,
   updateUserConfig,
   getConfigFilePath,
+  type ConversionStorageMode,
 } from "../lib/config";
 import { gracefulExit } from "../lib/utils/exit";
 
@@ -31,6 +32,17 @@ async function showConfig(): Promise<void> {
 
   console.log(`\nConfiguration file: ${configPath}\n`);
 
+  // Conversion settings
+  const storageMode = config.conversion?.storageMode ?? "cache";
+  console.log("Conversion Settings:");
+  console.log(`  Storage Mode: ${storageMode}`);
+  if (storageMode === "cache") {
+    console.log("    → Converted files stored in .osgrep/converted/");
+  } else {
+    console.log("    → Converted files stored alongside source files");
+  }
+  console.log();
+
   if (config.whisper) {
     console.log("Whisper API Settings:");
     console.log(
@@ -43,8 +55,8 @@ async function showConfig(): Promise<void> {
       `  YouTube URL: ${config.whisper.youtubeApiUrl || "(auto-derived)"}`,
     );
   } else {
-    console.log("No configuration set.");
-    console.log("Run 'osgrep config' to configure.");
+    console.log("Whisper API Settings: (not configured)");
+    console.log("  Run 'osgrep config' to enable audio/video transcription.");
   }
 
   await gracefulExit();
@@ -73,6 +85,46 @@ async function runConfigWizard(): Promise<void> {
   const currentConfig = loadUserConfig();
 
   p.intro("osgrep Configuration");
+
+  // Conversion storage mode selection
+  p.note(
+    "Choose where to store converted markdown files.\n\n" +
+      "• cache: Store in .osgrep/converted/ (gitignored)\n" +
+      "  - Clean working directory\n" +
+      "  - Regenerated on each machine\n\n" +
+      "• alongside: Store next to source files (e.g., doc.pdf.md)\n" +
+      "  - Can be committed to git\n" +
+      "  - Shared across team/machines",
+    "Conversion Storage",
+  );
+
+  const storageMode = await p.select<ConversionStorageMode>({
+    message: "Where should converted files be stored?",
+    initialValue: currentConfig.conversion?.storageMode ?? "cache",
+    options: [
+      {
+        value: "cache",
+        label: "Cache directory (.osgrep/converted/)",
+        hint: "default, gitignored",
+      },
+      {
+        value: "alongside",
+        label: "Alongside source files",
+        hint: "committable, e.g., document.pdf.md",
+      },
+    ],
+  });
+
+  if (p.isCancel(storageMode)) {
+    p.cancel("Configuration cancelled.");
+    await gracefulExit();
+    return;
+  }
+
+  // Save conversion settings immediately
+  updateUserConfig({
+    conversion: { storageMode },
+  });
 
   p.note(
     "Configure the Whisper API for audio/video transcription.\n" +

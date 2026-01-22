@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { env } from "@huggingface/transformers";
 import * as ort from "onnxruntime-node";
 import { v4 as uuidv4 } from "uuid";
-import { CONFIG, CONVERTED_DIR, PATHS } from "../../config";
+import { CONFIG, CONVERTED_DIR, PATHS, getConversionStorageMode } from "../../config";
 import { ConversionCache, convertToMarkdown } from "../convert";
 import {
   buildAnchorChunk,
@@ -83,7 +83,8 @@ export class WorkerOrchestrator {
       // Initialize conversion cache if project root is set
       if (!this.conversionCache) {
         const convertedDir = path.join(PROJECT_ROOT, ".osgrep", CONVERTED_DIR);
-        this.conversionCache = new ConversionCache(convertedDir);
+        const storageMode = getConversionStorageMode();
+        this.conversionCache = new ConversionCache(convertedDir, storageMode);
         await this.conversionCache.init();
       }
 

@@ -5,11 +5,17 @@ import * as os from "node:os";
 const CONFIG_DIR = path.join(os.homedir(), ".osgrep");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 
+export type ConversionStorageMode = "cache" | "alongside";
+
 export interface UserConfig {
   whisper?: {
     apiUrl?: string;
     authToken?: string;
     youtubeApiUrl?: string;
+  };
+  conversion?: {
+    /** Where to store converted markdown files */
+    storageMode?: ConversionStorageMode;
   };
 }
 
@@ -56,9 +62,20 @@ export function updateUserConfig(updates: Partial<UserConfig>): UserConfig {
     whisper: updates.whisper !== undefined
       ? updates.whisper
       : current.whisper,
+    conversion: updates.conversion !== undefined
+      ? updates.conversion
+      : current.conversion,
   };
   saveUserConfig(updated);
   return updated;
+}
+
+/**
+ * Get the conversion storage mode (defaults to "cache")
+ */
+export function getConversionStorageMode(): ConversionStorageMode {
+  const config = loadUserConfig();
+  return config.conversion?.storageMode ?? "cache";
 }
 
 /**
