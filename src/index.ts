@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { program } from "commander";
 import { installClaudeCode } from "./commands/claude-code";
 import { installCodex } from "./commands/codex";
+import { config } from "./commands/config";
 import { doctor } from "./commands/doctor";
 import { installDroid } from "./commands/droid";
 import { index } from "./commands/index";
@@ -59,6 +60,7 @@ program.addCommand(installCodex);
 program.addCommand(installDroid);
 program.addCommand(installOpencode);
 program.addCommand(uninstallOpencode);
+program.addCommand(config);
 program.addCommand(doctor);
 
 program.parse();

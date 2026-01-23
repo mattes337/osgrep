@@ -1,6 +1,9 @@
 import * as os from "node:os";
 import * as path from "node:path";
 
+// Re-export config types for convenience
+export type { ConversionStorageMode } from "./lib/config";
+
 export const MODEL_IDS = {
   embed: "onnx-community/granite-embedding-30m-english-ONNX",
   colbert: "ryandono/mxbai-edge-colbert-v0-17m-onnx-int8",
