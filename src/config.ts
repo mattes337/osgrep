@@ -26,8 +26,9 @@ export const CONFIG = {
   QUERY_PREFIX: "",
 };
 
+// 60 minutes default - media transcription can take a long time
 export const WORKER_TIMEOUT_MS = Number.parseInt(
-  process.env.OSGREP_WORKER_TIMEOUT_MS || "60000",
+  process.env.OSGREP_WORKER_TIMEOUT_MS || "3600000",
   10,
 );
 
@@ -163,11 +164,14 @@ const BASE_CONVERTIBLE_EXTENSIONS: string[] = [
   ".zip",
 ];
 
-// Build convertible extensions set (includes audio/video/shortcuts only if Whisper is configured)
+// Build convertible extensions set
+// - Shortcuts (.url, .lnk) are always included (YouTube transcripts work without Whisper)
+// - Audio/video files require Whisper API for transcription
 export const CONVERTIBLE_EXTENSIONS: Set<string> = new Set([
   ...BASE_CONVERTIBLE_EXTENSIONS,
+  ...SHORTCUT_EXTENSIONS,
   ...(WHISPER_CONFIG.isConfigured
-    ? [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS, ...SHORTCUT_EXTENSIONS]
+    ? [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS]
     : []),
 ]);
 

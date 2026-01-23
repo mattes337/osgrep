@@ -68,13 +68,14 @@ type PendingTask<M extends TaskMethod = TaskMethod> = {
   timeout?: NodeJS.Timeout;
 };
 
+// 60 minutes default - media transcription can take a long time
 const TASK_TIMEOUT_MS = (() => {
   const fromEnv = Number.parseInt(
     process.env.OSGREP_WORKER_TASK_TIMEOUT_MS ?? "",
     10,
   );
   if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
-  return 120_000;
+  return 3_600_000; // 60 minutes
 })();
 
 const FORCE_KILL_GRACE_MS = 200;

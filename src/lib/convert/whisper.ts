@@ -132,6 +132,20 @@ async function extractUrlFromShortcut(
 }
 
 /**
+ * Format seconds as MM:SS or HH:MM:SS
+ */
+function formatTimestamp(seconds: number): string {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hrs > 0) {
+    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  }
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+
+/**
  * Try to fetch transcript from YouTube's official caption API
  * Returns null if no captions are available
  */
@@ -144,8 +158,14 @@ async function fetchYouTubeOfficialTranscript(videoId: string): Promise<string |
       return null;
     }
 
-    // Combine all transcript segments into a single text
-    return transcriptItems.map(item => item.text).join(" ");
+    // Format transcript with timestamps: [MM:SS - MM:SS] text
+    return transcriptItems.map(item => {
+      const startSec = item.offset / 1000;
+      const endSec = startSec + (item.duration / 1000);
+      const startTs = formatTimestamp(startSec);
+      const endTs = formatTimestamp(endSec);
+      return `[${startTs} - ${endTs}] ${item.text}`;
+    }).join("\n");
   } catch {
     // Captions not available or other error - return null to trigger fallback
     return null;
@@ -195,7 +215,14 @@ async function transcribeYouTube(url: string): Promise<string> {
     }
   }
 
-  // Fall back to Modal API for Whisper transcription
+  // Fall back to Modal API for Whisper transcription (only if configured)
+  if (!WHISPER_CONFIG.isConfigured) {
+    throw new Error(
+      `No captions available for YouTube video. Whisper API fallback not configured. ` +
+      `Set WHISPER_API_URL and WHISPER_AUTH_TOKEN to enable transcription for videos without captions.`
+    );
+  }
+
   return transcribeYouTubeWithModal(url);
 }
 
@@ -296,17 +323,12 @@ async function transcribeAudio(
 
 /**
  * Convert shortcut file to markdown if it contains a YouTube URL
+ * Works without Whisper API by using official YouTube captions when available
  */
 export async function convertShortcutToMarkdown(
   buffer: Buffer,
   filePath: string,
 ): Promise<ConversionResult> {
-  if (!WHISPER_CONFIG.isConfigured) {
-    throw new Error(
-      "Whisper API not configured. Set WHISPER_API_URL and WHISPER_AUTH_TOKEN environment variables.",
-    );
-  }
-
   const ext = extname(filePath).toLowerCase();
   const fileName = basename(filePath);
 

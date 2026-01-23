@@ -20,14 +20,21 @@ export function hasNullByte(buffer: Buffer, sampleLength = 1024): boolean {
   return false;
 }
 
+// Maximum size for media files (500MB) - these get converted to small text transcripts
+const MAX_MEDIA_FILE_SIZE_BYTES = 1024 * 1024 * 500;
+
 export async function readFileSnapshot(
   filePath: string,
 ): Promise<{ buffer: Buffer; mtimeMs: number; size: number }> {
   const handle = await fs.promises.open(filePath, "r");
   try {
     const before = await handle.stat();
-    if (before.size > MAX_FILE_SIZE_BYTES) {
-      throw new Error("File exceeds maximum allowed size");
+    const ext = extname(filePath).toLowerCase();
+    const isConvertible = CONVERTIBLE_EXTENSIONS.has(ext);
+    const maxSize = isConvertible ? MAX_MEDIA_FILE_SIZE_BYTES : MAX_FILE_SIZE_BYTES;
+
+    if (before.size > maxSize) {
+      throw new Error(`File exceeds maximum allowed size (${isConvertible ? '500MB for media' : '2MB'})`);
     }
     const size = before.size;
     const buffer = size > 0 ? Buffer.allocUnsafe(size) : Buffer.alloc(0);
@@ -45,11 +52,17 @@ export async function readFileSnapshot(
 }
 
 // Check if a file should be indexed (extension and size).
+// Convertible files (media, documents) bypass the size limit since they're transcribed/converted to text.
 export function isIndexableFile(filePath: string, size?: number): boolean {
   const ext = extname(filePath).toLowerCase();
   const basename = path.basename(filePath).toLowerCase();
   if (!INDEXABLE_EXTENSIONS.has(ext) && !INDEXABLE_EXTENSIONS.has(basename)) {
     return false;
+  }
+
+  // Convertible files (media, documents) bypass size limit - they get converted to small text
+  if (CONVERTIBLE_EXTENSIONS.has(ext)) {
+    return true;
   }
 
   const withinSize = (s: number) => s > 0 && s <= MAX_FILE_SIZE_BYTES;
