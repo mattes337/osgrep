@@ -10,7 +10,24 @@
     "type": "git",
     "url": "https://github.com/Ryandonofrio3/osgrep.git"
   },
-  "main": "index.js",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./lib": {
+      "import": "./dist/lib/index.js",
+      "require": "./dist/lib/index.js",
+      "types": "./dist/lib/index.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config.js",
+      "require": "./dist/config.js",
+      "types": "./dist/config.d.ts"
+    }
+  },
   "bin": {
     "osgrep": "dist/index.js"
   },
