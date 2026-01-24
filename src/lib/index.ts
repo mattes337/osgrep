@@ -60,3 +60,9 @@ export { CONFIG, MODEL_IDS, PATHS } from '../config.js';
 // ============================================================================
 
 export { escapeSqlString, normalizePath } from './utils/filter-builder.js';
+
+// ============================================================================
+// Setup & Model Management
+// ============================================================================
+
+export { downloadModels, areModelsDownloaded } from './setup/model-loader.js';
